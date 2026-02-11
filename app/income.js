@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, X, Briefcase, Code, Terminal, TrendingUp, Calendar, CheckCircle2, ChevronLeft } from 'lucide-react-native';
 import FloatingLabelInput from '../components/FloatingLabelInput';
 import { Colors } from '../constants/Theme';
+import { useTransactions } from '../hooks/useTransactions';
 import CustomPopup from '../components/CustomPopup';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';

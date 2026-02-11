@@ -218,6 +218,7 @@ export default function BusinessScreen() {
     };
 
     // Calculations
+    // Calculations
     const getFilteredEntries = () => {
         const entries = data.business?.entries || [];
         const now = new Date();
@@ -345,9 +346,10 @@ export default function BusinessScreen() {
                 filteredEntries.map(e => `${e.date} - ${e.carName}: ₹${e.myPortion}`).join('\n');
 
             const fileName = `Business_Report_${Date.now()}.txt`;
-            const filePath = FileSystem.cacheDirectory.endsWith('/')
-                ? `${FileSystem.cacheDirectory}${fileName}`
-                : `${FileSystem.cacheDirectory}/${fileName}`;
+            const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
+            const filePath = cacheDir.endsWith('/')
+                ? `${cacheDir}${fileName}`
+                : `${cacheDir}/${fileName}`;
 
             await FileSystem.writeAsStringAsync(filePath, monthStatus);
 
@@ -790,7 +792,7 @@ const styles = StyleSheet.create({
     sectionTitle: { fontSize: 20, fontWeight: '900', color: '#1a1a1a' },
 
     carList: { marginBottom: 10 },
-    carCard: { backgroundColor: '#fff', width: 260, padding: 18, borderRadius: 24, marginRight: 15, backgroundColor: Colors.light.primary + '10' },
+    carCard: { backgroundColor: Colors.light.primary + '10', width: 260, padding: 18, borderRadius: 24, marginRight: 15 },
     carHeaderCard: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
     carIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: Colors.light.primary, alignItems: 'center', justifyContent: 'center' },
     carNameText: { fontSize: 15, fontWeight: '800' },
