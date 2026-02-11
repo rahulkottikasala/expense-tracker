@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FloatingLabelInput from '../../components/FloatingLabelInput';
 import { Colors } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
-import { Database, Download, Upload, Trash2, Info, Edit2, Pencil, Landmark, Wallet, CreditCard, Clock, X, CircleAlert, FileText, History } from 'lucide-react-native';
+import { Database, Download, Upload, Trash2, Info, Edit2, Pencil, Landmark, Wallet, CreditCard, Clock, X, CircleAlert, FileText, History, Calendar } from 'lucide-react-native';
 import { cacheDirectory, writeAsStringAsync, readAsStringAsync, StorageAccessFramework } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
@@ -15,7 +16,7 @@ export default function SettingsScreen() {
         data, setInitialAmount, importData,
         editBank, deleteBank, editIncome, deleteIncome,
         editExpense, deleteExpense, editEMI, deleteEMI,
-        forceCloseEMI
+        forceCloseEMI, updateBusinessCycleDay
     } = useTransactions();
 
     const [importText, setImportText] = useState('');
@@ -43,6 +44,14 @@ export default function SettingsScreen() {
     const [closeEMI, setCloseEMI] = useState(null);
     const [closureAmt, setClosureAmt] = useState('');
     const [targetBankId, setTargetBankId] = useState('');
+
+    const [tempCycleDay, setTempCycleDay] = useState(data.business?.cycleDay || 5);
+
+    React.useEffect(() => {
+        if (data.business?.cycleDay) {
+            setTempCycleDay(data.business.cycleDay);
+        }
+    }, [data.business?.cycleDay]);
 
     const handleSaveInit = () => {
         setInitialAmount(parseFloat(initAmt) || 0);
@@ -428,6 +437,64 @@ export default function SettingsScreen() {
                         </View>
                     </KeyboardAvoidingView>
                 </Modal>
+                <View style={[styles.section, { marginTop: 20 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
+                        <Text style={styles.sectionTitle}>Business Preferences</Text>
+                        <View style={styles.badge}>
+                            <Calendar size={12} color={Colors.light.primary} />
+                            <Text style={styles.badgeText}>Cycle Reset</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.card}>
+                        <Text style={styles.cardLabel}>Monthly Start Day</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.dayPicker}
+                            contentContainerStyle={{ paddingVertical: 10 }}
+                        >
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                                <TouchableOpacity
+                                    key={day}
+                                    style={[
+                                        styles.dayItem,
+                                        tempCycleDay === day && styles.dayItemActive
+                                    ]}
+                                    onPress={() => setTempCycleDay(day)}
+                                >
+                                    <Text style={[
+                                        styles.dayText,
+                                        tempCycleDay === day && styles.dayTextActive
+                                    ]}>{day}</Text>
+                                    {tempCycleDay === day && <View style={styles.activeDot} />}
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+
+                        <View style={styles.cycleInfoBox}>
+                            <Info size={14} color={Colors.light.primary} />
+                            <Text style={styles.cycleInfoText}>
+                                Your financial month starts on the <Text style={{ fontWeight: '800' }}>{tempCycleDay}th</Text> and ends on the <Text style={{ fontWeight: '800' }}>{(tempCycleDay - 1 || 31)}th</Text> of next month.
+                            </Text>
+                        </View>
+
+                        {tempCycleDay !== data.business?.cycleDay && (
+                            <TouchableOpacity
+                                style={[styles.submitBtnInCard, { marginTop: 15 }]}
+                                onPress={() => {
+                                    showPopup('confirm', 'Update Business Cycle?', `Your reports and profits will now reset on the ${tempCycleDay}th of every month.`, () => {
+                                        updateBusinessCycleDay(tempCycleDay);
+                                        showPopup('success', 'Cycle Updated', `Business cycle now starts on the ${tempCycleDay}th.`);
+                                    });
+                                }}
+                            >
+                                <Text style={styles.submitBtnTextInCard}>Update Calculation Day</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+
                 <View style={styles.footer}>
                     <History size={16} color="#999" />
                     <Text style={styles.footerText}>Audit Trail Enabled • v2.3.0</Text>
@@ -531,6 +598,21 @@ const styles = StyleSheet.create({
     bankChoiceTextActive: { color: '#fff' },
     footer: { paddingVertical: 30, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
     footerText: { color: '#999', fontSize: 11, fontWeight: '600', marginLeft: 6 },
+
+    badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.light.primary + '15', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
+    badgeText: { fontSize: 10, fontWeight: '800', color: Colors.light.primary, textTransform: 'uppercase' },
+    cardLabel: { fontSize: 13, fontWeight: '700', color: '#64748B', marginBottom: 12 },
+    dayPicker: { marginHorizontal: -5 },
+    dayItem: { width: 48, height: 56, borderRadius: 16, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', marginRight: 10, borderWidth: 1, borderColor: '#F1F5F9' },
+    dayItemActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary, elevation: 4, shadowColor: Colors.light.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+    dayText: { fontSize: 16, fontWeight: '800', color: '#1E293B' },
+    dayTextActive: { color: '#fff' },
+    activeDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff', marginTop: 4 },
+    cycleInfoBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.light.primary + '08', padding: 16, borderRadius: 20, marginTop: 20, borderLeftWidth: 4, borderLeftColor: Colors.light.primary },
+    cycleInfoText: { flex: 1, fontSize: 12, color: Colors.light.primary, lineHeight: 18, fontWeight: '500' },
+
+    submitBtnInCard: { backgroundColor: Colors.light.primary, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    submitBtnTextInCard: { color: '#fff', fontWeight: '800', fontSize: 13 },
 
     // Export Modal Styles
     exportModalContent: { backgroundColor: '#fff', padding: 24, borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingBottom: 40 },

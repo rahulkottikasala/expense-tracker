@@ -1,6 +1,8 @@
 import { Tabs } from 'expo-router';
-import { LayoutDashboard, Wallet, CreditCard, PieChart, Settings } from 'lucide-react-native';
+import { LayoutDashboard, PieChart, Briefcase, Settings, Plus } from 'lucide-react-native';
 import { Colors } from '../../constants/Theme';
+import FloatingAddButton from '../../components/FloatingAddButton';
+import { View } from 'react-native';
 
 export default function TabLayout() {
     return (
@@ -12,15 +14,9 @@ export default function TabLayout() {
                     backgroundColor: Colors.light.card,
                     borderTopWidth: 1,
                     borderTopColor: Colors.light.border,
-                    height: 70,
-                    paddingBottom: 12,
-                },
-                headerStyle: {
-                    backgroundColor: Colors.light.background,
-                },
-                headerTitleStyle: {
-                    fontWeight: '700',
-                    color: Colors.light.text,
+                    height: 75,
+                    paddingBottom: 20,
+                    paddingTop: 5,
                 },
             }}
         >
@@ -32,24 +28,29 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="income"
-                options={{
-                    title: 'Income',
-                    tabBarIcon: ({ color, size }) => <Wallet color={color} size={size} />,
-                }}
-            />
-            <Tabs.Screen
-                name="expenses"
-                options={{
-                    title: 'Expenses',
-                    tabBarIcon: ({ color, size }) => <CreditCard color={color} size={size} />,
-                }}
-            />
-            <Tabs.Screen
                 name="investments"
                 options={{
                     title: 'Invest',
                     tabBarIcon: ({ color, size }) => <PieChart color={color} size={size} />,
+                }}
+            />
+            {/* Custom Add Button in the middle */}
+            <Tabs.Screen
+                name="plus"
+                options={{
+                    title: '',
+                    tabBarButton: () => (
+                        <View style={{ width: 80, height: 80, alignItems: 'center', justifyContent: 'center' }}>
+                            <FloatingAddButton />
+                        </View>
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="business"
+                options={{
+                    title: 'Business',
+                    tabBarIcon: ({ color, size }) => <Briefcase color={color} size={size} />,
                 }}
             />
             <Tabs.Screen
@@ -59,6 +60,9 @@ export default function TabLayout() {
                     tabBarIcon: ({ color, size }) => <Settings color={color} size={size} />,
                 }}
             />
+            {/* Hide the old tabs if they still exist in the directory but aren't in the layout */}
+            <Tabs.Screen name="income" options={{ href: null }} />
+            <Tabs.Screen name="expenses" options={{ href: null }} />
         </Tabs>
     );
 }

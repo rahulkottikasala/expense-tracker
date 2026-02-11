@@ -21,6 +21,12 @@ export function TransactionProvider({ children }) {
         initialAmount: 0,
         historicalStats: [], // For past month graphs
         history: [], // Transaction audit log
+        business: {
+            cars: [], // { id, name, emi, partnerName, partnerShare, status, totalTenure, remainingTenure, emiDate }
+            entries: [], // { id, carId, date, type: 'rent'|'commission', amount, cng, drivers, uberCommission, profit, partnerPortion, myPortion }
+            drivers: [], // { id, name }
+            cycleDay: 5,
+        },
     });
 
     const [loading, setLoading] = useState(true);
@@ -34,7 +40,17 @@ export function TransactionProvider({ children }) {
             const storedData = await AsyncStorage.getItem(STORAGE_KEY);
             if (storedData) {
                 const parsed = JSON.parse(storedData);
-                setData(parsed);
+                // Ensure business exists even if loading old data
+                const mergedData = {
+                    ...data, // Fallback to initial state
+                    ...parsed,
+                    business: {
+                        ...(data.business || {}),
+                        ...(parsed.business || {}),
+                        drivers: parsed.business?.drivers || [],
+                    }
+                };
+                setData(mergedData);
             }
         } catch (e) {
             console.error('Failed to load data', e);
@@ -251,28 +267,24 @@ export function TransactionProvider({ children }) {
     const importData = async (jsonString) => {
         try {
             const parsed = JSON.parse(jsonString);
-
-            // Basic validation to ensure it's our data
-            const requiredKeys = ['income', 'expenses', 'emis', 'banks'];
+            const requiredKeys = ['income', 'expenses', 'emis', 'banks', 'business'];
             const hasAllKeys = requiredKeys.every(key => Object.prototype.hasOwnProperty.call(parsed, key));
 
             if (!hasAllKeys) {
-                console.error('Import failed: Missing required keys in backup file');
-                return false;
-            }
-
-            // Ensure arrays are arrays
-            if (!Array.isArray(parsed.income) || !Array.isArray(parsed.expenses) || !Array.isArray(parsed.emis) || !Array.isArray(parsed.banks)) {
-                console.error('Import failed: Data structure is not valid (arrays expected)');
+                console.error('Import failed: Missing required keys');
                 return false;
             }
 
             await saveData(parsed);
             return true;
         } catch (e) {
-            console.error('Import failed: Invalid JSON string', e);
+            console.error('Import failed', e);
             return false;
         }
+    };
+
+    const exportData = () => {
+        return JSON.stringify(data, null, 2);
     };
 
     const replaceData = async (newData) => {
@@ -322,6 +334,120 @@ export function TransactionProvider({ children }) {
         };
     };
 
+
+    // Business Management
+    const addCar = (car) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                cars: [{ ...car, id: Date.now().toString() }, ...(data.business?.cars || [])]
+            }
+        };
+        saveData(newData);
+    };
+
+    const updateCar = (id, updatedCar) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                cars: data.business.cars.map(c => c.id === id ? { ...updatedCar, id } : c)
+            }
+        };
+        saveData(newData);
+    };
+
+    const deleteCar = (id) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                cars: data.business.cars.filter(c => c.id !== id),
+                entries: data.business.entries.filter(e => e.carId !== id)
+            }
+        };
+        saveData(newData);
+    };
+
+    const updateBusinessCycleDay = (day) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                cycleDay: day
+            }
+        };
+        saveData(newData);
+    };
+
+    const addBusinessEntry = (entry) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                entries: [{ ...entry, id: Date.now().toString() }, ...(data.business?.entries || [])]
+            }
+        };
+        saveData(newData);
+    };
+
+    const deleteBusinessEntry = (id) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                entries: data.business.entries.filter(e => e.id !== id)
+            }
+        };
+        saveData(newData);
+    };
+
+    const editBusinessEntry = (id, updatedEntry) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                entries: data.business.entries.map(e => e.id === id ? { ...updatedEntry, id } : e)
+            }
+        };
+        saveData(newData);
+    };
+
+    const addDriver = (name) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                drivers: [{ id: Date.now().toString(), name }, ...(data.business?.drivers || [])]
+            }
+        };
+        saveData(newData);
+    };
+
+    const deleteDriver = (id) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                drivers: data.business.drivers.filter(d => d.id !== id)
+            }
+        };
+        saveData(newData);
+    };
+
+    const updateDriver = (id, newName) => {
+        const newData = {
+            ...data,
+            business: {
+                ...data.business,
+                drivers: data.business.drivers.map(d => d.id === id ? { ...d, name: newName } : d),
+                entries: data.business.entries.map(e => e.driverId === id ? { ...e, driverName: newName } : e)
+            }
+        };
+        saveData(newData);
+    };
+
     return (
         <TransactionContext.Provider value={{
             data,
@@ -346,6 +472,17 @@ export function TransactionProvider({ children }) {
             confirmEMIPayment,
             forceCloseEMI,
             replaceData,
+            addCar,
+            updateCar,
+            deleteCar,
+            addBusinessEntry,
+            editBusinessEntry,
+            deleteBusinessEntry,
+            addDriver,
+            deleteDriver,
+            updateDriver,
+            updateBusinessCycleDay,
+            exportData,
             ...calculateTotals(),
         }}>
             {children}

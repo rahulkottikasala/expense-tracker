@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import FloatingLabelInput from '../../components/FloatingLabelInput';
 import { Colors, Spacing, Typography } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
 import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
@@ -117,14 +118,16 @@ export default function Dashboard() {
 
     const pendingEMIs = (data?.emis || []).filter(e => {
         if (e.status === 'closed') return false;
-        // Don't show if EMI starts in the future (next month)
+        // Skip if it's a business car EMI (handled in Business screen)
+        if (e.type === 'business' || e.category === 'Fleet') return false;
+
         if (e.startNextMonth && e.lastPaidMonth === undefined) return false;
 
         const isPaidThisMonth = e.lastPaidMonth === currentMonthYear;
         if (isPaidThisMonth) return false;
         const emiDay = parseInt(e.date);
         const daysUntilDue = emiDay - todayDay;
-        return daysUntilDue <= 15; // Show if due within 15 days or overdue
+        return daysUntilDue <= 15;
     });
 
     const barData = {
@@ -189,8 +192,8 @@ export default function Dashboard() {
                 {/* Savings & Debt Row */}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.summaryRowScroll}>
                     <Animated.View entering={FadeInUp.delay(200)} style={styles.summaryCardSmall}>
-                        <Text style={styles.summaryTitle}>Liquid Cash</Text>
-                        <Text style={styles.summaryAmount}>₹ {totalBankBalance.toLocaleString()}</Text>
+                        <Text style={styles.summaryTitle}>Business Profit</Text>
+                        <Text style={[styles.summaryAmount, { color: Colors.light.success }]}>₹ {((data.business?.entries || []).reduce((sum, e) => sum + e.myPortion, 0)).toLocaleString()}</Text>
                     </Animated.View>
                     <Animated.View entering={FadeInUp.delay(250)} style={styles.summaryCardSmall}>
                         <Text style={styles.summaryTitle}>Next Month Need</Text>
@@ -240,7 +243,7 @@ export default function Dashboard() {
                     <View style={styles.fluxFooterPremium}>
                         <View style={styles.fluxProgressBarContainer}>
                             <View style={[styles.fluxProgressBar, {
-                                width: `${Math.min(100, (dailyExpense / (dailyIncome || 1)) * 100)}%`,
+                                width: `${Math.min(100, (dailyExpense / (dailyIncome || 1)) * 100)}% `,
                                 backgroundColor: dailyExpense > dailyIncome ? '#F87171' : '#60A5FA'
                             }]} />
                         </View>
@@ -297,70 +300,6 @@ export default function Dashboard() {
                     </View>
                 </Animated.View>
 
-                {/* EMI Confirmation Section */}
-                {pendingEMIs.length > 0 && (
-                    <View style={styles.reminderContainer}>
-                        <View style={styles.reminderHeader}>
-                            <Bell color={Colors.light.accent} size={18} />
-                            <Text style={styles.reminderTitle}>Upcoming EMIs (Next 15 Days)</Text>
-                        </View>
-                        {pendingEMIs.map(emi => {
-                            const emiDay = parseInt(emi.date);
-                            const daysUntilDue = emiDay - todayDay;
-                            const isOverdue = daysUntilDue < 0;
-                            const statusColor = isOverdue ? Colors.light.danger : Colors.light.accent;
-
-                            // Tenure Progress Calculations
-                            const total = parseInt(emi.tenure) || 1;
-                            const current = parseInt(emi.remainingTenure) || 0;
-                            const progress = Math.max(0, Math.min(1, (total - current) / total));
-
-                            const getIcon = () => {
-                                if (emi.type === 'debt') return <Shield size={18} color={Colors.light.danger} />;
-                                if (emi.type === 'saving') return <PiggyBank size={18} color={Colors.light.primary} />;
-                                return <HeartHandshake size={18} color={Colors.light.accent} />;
-                            };
-
-                            return (
-                                <View key={emi.id} style={styles.premiumCard}>
-                                    <View style={styles.cardHeader}>
-                                        <View style={styles.iconBox}>{getIcon()}</View>
-                                        <View style={{ flex: 1, marginLeft: 12 }}>
-                                            <Text style={styles.cardTitle}>{emi.name}</Text>
-                                            <Text style={styles.cardSub}>{emi.type === 'debt' ? 'System Debt' : 'Scheduled Transfer'}</Text>
-                                        </View>
-                                        <View style={{ alignItems: 'flex-end' }}>
-                                            <Text style={styles.cardAmount}>₹{emi.amount.toLocaleString()}</Text>
-                                            <Text style={[styles.dueText, { color: statusColor }]}>
-                                                {isOverdue ? 'Overdue' : `Due in ${daysUntilDue} days`}
-                                            </Text>
-                                        </View>
-                                    </View>
-
-                                    <View style={styles.progressSection}>
-                                        <View style={styles.progressBarContainer}>
-                                            <View style={[styles.progressBar, { width: `${progress * 100}%`, backgroundColor: statusColor }]} />
-                                        </View>
-                                        <View style={styles.progressLabels}>
-                                            <Text style={styles.progressLabel}>Paid: {total - current} mo</Text>
-                                            <Text style={styles.progressLabel}>Total: {total} mo</Text>
-                                        </View>
-                                    </View>
-
-                                    <TouchableOpacity
-                                        style={[styles.premiumPayBtn, { shadowColor: statusColor }]}
-                                        onPress={() => {
-                                            showPopup('confirm', 'Confirm Payment', `Mark ₹${emi.amount.toLocaleString()} as PAID? Tenure will decrease to ${current - 1} months.`, () => handleConfirmEMI(emi.id));
-                                        }}
-                                    >
-                                        <Text style={styles.premiumPayBtnText}>Mark as Settled</Text>
-                                        <ArrowRight size={16} color="#fff" />
-                                    </TouchableOpacity>
-                                </View>
-                            );
-                        })}
-                    </View>
-                )}
 
                 {/* Analytics Gallery */}
                 <View style={styles.sectionHeader}>
@@ -391,9 +330,19 @@ export default function Dashboard() {
                             <LineChart
                                 data={lineData}
                                 width={screenWidth - 80}
-                                height={180}
-                                chartConfig={chartConfig}
+                                height={220}
+                                chartConfig={{
+                                    backgroundColor: "#fff",
+                                    backgroundGradientFrom: "#fff",
+                                    backgroundGradientTo: "#fff",
+                                    decimalPlaces: 0,
+                                    color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+                                    labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
+                                    style: { borderRadius: 16 },
+                                    propsForDots: { r: "4", strokeWidth: "2", stroke: Colors.light.primary }
+                                }}
                                 bezier
+                                style={{ marginVertical: 8, borderRadius: 16 }}
                             />
                         </View>
                     )}
@@ -448,7 +397,7 @@ export default function Dashboard() {
                                     <Text style={styles.modalTitle}>Quick Add: {quickTitle}</Text>
                                     <TouchableOpacity onPress={() => setQuickAddVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
                                 </View>
-                                <TextInput style={styles.qInput} placeholder="Amount ₹" keyboardType="numeric" autoFocus value={quickAmount} onChangeText={setQuickAmount} />
+                                <FloatingLabelInput label="Amount ₹" value={quickAmount} onChangeText={setQuickAmount} keyboardType="numeric" autoFocus />
 
                                 <Text style={styles.modalLabelSmall}>Select Bank Account</Text>
                                 <View style={styles.bankPickerSmall}>
@@ -478,8 +427,8 @@ export default function Dashboard() {
                                     <Text style={styles.modalTitle}>Link Bank Account</Text>
                                     <TouchableOpacity onPress={() => setBankModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
                                 </View>
-                                <TextInput style={styles.qInput} placeholder="Bank Name" value={bankName} onChangeText={setBankName} />
-                                <TextInput style={styles.qInput} placeholder="Balance ₹" keyboardType="numeric" value={bankBal} onChangeText={setBankBal} />
+                                <FloatingLabelInput label="Bank Name" value={bankName} onChangeText={setBankName} />
+                                <FloatingLabelInput label="Balance ₹" value={bankBal} onChangeText={setBankBal} keyboardType="numeric" />
                                 <TouchableOpacity style={styles.qBtn} onPress={handleAddBank}><Text style={styles.qBtnText}>Add Bank</Text></TouchableOpacity>
                             </View>
                         </View>
