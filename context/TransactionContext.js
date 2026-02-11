@@ -66,21 +66,39 @@ export function TransactionProvider({ children }) {
         return entry;
     };
 
-    const addIncome = (item) => {
-        const historyEntry = logTransaction('income', item.name, item.amount, item.type);
+    const addIncome = (item, bankId) => {
+        const historyEntry = logTransaction('income', item.name, item.amount, item.type, { bankId });
+
+        let updatedBanks = data.banks || [];
+        if (bankId) {
+            updatedBanks = updatedBanks.map(b =>
+                b.id === bankId ? { ...b, balance: b.balance + parseFloat(item.amount) } : b
+            );
+        }
+
         const newData = {
             ...data,
-            income: [{ ...item, id: Date.now().toString() }, ...data.income],
+            banks: updatedBanks,
+            income: [{ ...item, id: Date.now().toString(), bankId }, ...data.income],
             history: [historyEntry, ...(data.history || [])]
         };
         saveData(newData);
     };
 
-    const addExpense = (item) => {
-        const historyEntry = logTransaction('expense', item.name, item.amount, item.category);
+    const addExpense = (item, bankId) => {
+        const historyEntry = logTransaction('expense', item.name, item.amount, item.category, { bankId });
+
+        let updatedBanks = data.banks || [];
+        if (bankId) {
+            updatedBanks = updatedBanks.map(b =>
+                b.id === bankId ? { ...b, balance: b.balance - parseFloat(item.amount) } : b
+            );
+        }
+
         const newData = {
             ...data,
-            expenses: [{ ...item, id: Date.now().toString() }, ...data.expenses],
+            banks: updatedBanks,
+            expenses: [{ ...item, id: Date.now().toString(), bankId }, ...data.expenses],
             history: [historyEntry, ...(data.history || [])]
         };
         saveData(newData);
@@ -175,16 +193,24 @@ export function TransactionProvider({ children }) {
         saveData(newData);
     };
 
-    const confirmEMIPayment = (id) => {
+    const confirmEMIPayment = (id, bankId) => {
         const emi = data.emis.find(e => e.id === id);
         if (!emi) return;
 
         const nextTenure = (emi.remainingTenure || emi.tenure) - 1;
         const currentMonthYear = new Date().toLocaleString('default', { month: 'short', year: 'numeric' });
 
-        const historyEntry = logTransaction('emi_payment', emi.name, emi.amount, emi.type, { emiId: id, manualBankUpdate: true });
+        let updatedBanks = data.banks || [];
+        if (bankId) {
+            updatedBanks = updatedBanks.map(b =>
+                b.id === bankId ? { ...b, balance: b.balance - parseFloat(emi.amount) } : b
+            );
+        }
+
+        const historyEntry = logTransaction('emi_payment', emi.name, emi.amount, emi.type, { emiId: id, bankId });
         const newData = {
             ...data,
+            banks: updatedBanks,
             emis: data.emis.map(e => {
                 if (e.id === id) {
                     return {
@@ -225,9 +251,26 @@ export function TransactionProvider({ children }) {
     const importData = async (jsonString) => {
         try {
             const parsed = JSON.parse(jsonString);
+
+            // Basic validation to ensure it's our data
+            const requiredKeys = ['income', 'expenses', 'emis', 'banks'];
+            const hasAllKeys = requiredKeys.every(key => Object.prototype.hasOwnProperty.call(parsed, key));
+
+            if (!hasAllKeys) {
+                console.error('Import failed: Missing required keys in backup file');
+                return false;
+            }
+
+            // Ensure arrays are arrays
+            if (!Array.isArray(parsed.income) || !Array.isArray(parsed.expenses) || !Array.isArray(parsed.emis) || !Array.isArray(parsed.banks)) {
+                console.error('Import failed: Data structure is not valid (arrays expected)');
+                return false;
+            }
+
             await saveData(parsed);
             return true;
         } catch (e) {
+            console.error('Import failed: Invalid JSON string', e);
             return false;
         }
     };

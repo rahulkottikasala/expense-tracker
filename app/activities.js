@@ -49,7 +49,12 @@ export default function ActivitiesScreen() {
                         </View>
                         <View style={styles.info}>
                             <Text style={styles.name}>{item.name || item.category}</Text>
-                            <Text style={styles.date}>{new Date(Number(item.id)).toLocaleDateString()}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={styles.date}>{new Date(Number(item.id)).toLocaleDateString()} • </Text>
+                                <Text style={styles.bankTag}>
+                                    {data.banks.find(b => b.id === item.bankId)?.name || 'Cash/Other'}
+                                </Text>
+                            </View>
                         </View>
                         <Text style={[styles.amount, { color: data.income.find(i => i.id === item.id) ? Colors.light.success : Colors.light.danger }]}>
                             {data.income.find(i => i.id === item.id) ? '+' : '-'} ₹{Number(item.amount).toLocaleString()}
@@ -74,5 +79,6 @@ const styles = StyleSheet.create({
     info: { flex: 1 },
     name: { fontWeight: '700', fontSize: 16 },
     date: { fontSize: 12, color: '#999', marginTop: 2 },
+    bankTag: { fontSize: 11, color: Colors.light.primary, fontWeight: '700', marginTop: 2 },
     amount: { fontWeight: '800', fontSize: 16 }
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Switch, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
@@ -21,6 +21,7 @@ export default function ExpensesScreen() {
     const [date, setDate] = useState(new Date());
     const [showPicker, setShowPicker] = useState(false);
     const [startNextMonth, setStartNextMonth] = useState(false);
+    const [bankId, setBankId] = useState('');
     const [popup, setPopup] = useState({ visible: false, type: 'info', title: '', message: '' });
     const showPopup = (type, title, message) => setPopup({ visible: true, type, title, message });
 
@@ -35,7 +36,7 @@ export default function ExpensesScreen() {
         if (!name || !amount) return;
 
         if (activeTab === 'expense') {
-            addExpense({ name, amount: parseFloat(amount), category, date: date.toLocaleDateString() });
+            addExpense({ name, amount: parseFloat(amount), category, date: date.toLocaleDateString() }, bankId);
             showPopup('success', 'Expense Added', `₹${parseFloat(amount).toLocaleString()} spent on ${category}.`);
         } else {
             const isLoan = emiType === 'debt';
@@ -52,7 +53,8 @@ export default function ExpensesScreen() {
                 fullDate: date.toLocaleDateString(),
                 remainingTenure: isLoan ? parseInt(tenure) : 999,
                 status: 'active',
-                startNextMonth: startNextMonth
+                startNextMonth: startNextMonth,
+                bankId: bankId // Preferred bank for this EMI
             });
             showPopup('success', 'EMI Scheduled', `${name} has been added to your recurring payments.`);
         }
@@ -69,6 +71,7 @@ export default function ExpensesScreen() {
         setTenure('');
         setDate(new Date());
         setStartNextMonth(false);
+        setBankId('');
     };
 
     const onDateChange = (event, selectedDate) => {
@@ -132,82 +135,102 @@ export default function ExpensesScreen() {
             </ScrollView>
 
             <Modal visible={modalVisible} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <TouchableOpacity style={{ flex: 1 }} onPress={() => setModalVisible(false)} />
-                    <View style={styles.modalContent}>
-                        <View style={styles.swipeBar} />
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>New {activeTab === 'expense' ? 'Expense' : 'EMI Plan'}</Text>
-                            <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#000" size={24} /></TouchableOpacity>
-                        </View>
-
-                        <TextInput style={styles.input} placeholder="Title (e.g., Grocery, Car Loan)" value={name} onChangeText={setName} />
-                        <TextInput style={styles.input} placeholder="Amount ₹" keyboardType="numeric" value={amount} onChangeText={setAmount} />
-
-                        {activeTab === 'expense' ? (
-                            <View style={styles.categoryContainer}>
-                                {categories.map((cat) => (
-                                    <TouchableOpacity
-                                        key={cat}
-                                        style={[styles.catChip, category === cat && styles.catChipActive]}
-                                        onPress={() => setCategory(cat)}
-                                    >
-                                        <Text style={[styles.catChipText, category === cat && styles.catChipTextActive]}>{cat}</Text>
-                                    </TouchableOpacity>
-                                ))}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.modalOverlay}>
+                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setModalVisible(false)} />
+                        <View style={styles.modalContent}>
+                            <View style={styles.swipeBar} />
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>New {activeTab === 'expense' ? 'Expense' : 'EMI Plan'}</Text>
+                                <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#000" size={24} /></TouchableOpacity>
                             </View>
-                        ) : (
-                            <>
-                                <View style={styles.categoryContainer}>
-                                    {emiTypes.map((type) => (
+
+                            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                <TextInput style={styles.input} placeholder="Title (e.g., Grocery, Car Loan)" value={name} onChangeText={setName} />
+                                <TextInput style={styles.input} placeholder="Amount ₹" keyboardType="numeric" value={amount} onChangeText={setAmount} />
+
+                                <Text style={styles.label}>Impact Bank Account</Text>
+                                <View style={styles.bankSelector}>
+                                    {(data.banks || []).map(bank => (
                                         <TouchableOpacity
-                                            key={type.id}
-                                            style={[styles.catChip, emiType === type.id && styles.catChipActive]}
-                                            onPress={() => setEmiType(type.id)}
+                                            key={bank.id}
+                                            style={[styles.bankChip, bankId === bank.id && styles.bankChipActive]}
+                                            onPress={() => setBankId(bank.id)}
                                         >
-                                            <Text style={[styles.catChipText, emiType === type.id && styles.catChipTextActive]}>{type.label}</Text>
+                                            <Text style={[styles.bankChipText, bankId === bank.id && styles.bankChipTextActive]}>{bank.name}</Text>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
-                                {emiType === 'debt' && (
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="Tenure (e.g. 12 months)"
-                                        keyboardType="numeric"
-                                        value={tenure}
-                                        onChangeText={setTenure}
-                                    />
-                                )}
-                                <View style={styles.switchRow}>
-                                    <View>
-                                        <Text style={styles.switchLabel}>Start Next Month</Text>
-                                        <Text style={styles.switchSub}>Exclude from current dashboard remit</Text>
+
+                                {activeTab === 'expense' ? (
+                                    <View style={styles.categoryContainer}>
+                                        {categories.map((cat) => (
+                                            <TouchableOpacity
+                                                key={cat}
+                                                style={[styles.catChip, category === cat && styles.catChipActive]}
+                                                onPress={() => setCategory(cat)}
+                                            >
+                                                <Text style={[styles.catChipText, category === cat && styles.catChipTextActive]}>{cat}</Text>
+                                            </TouchableOpacity>
+                                        ))}
                                     </View>
-                                    <Switch
-                                        value={startNextMonth}
-                                        onValueChange={setStartNextMonth}
-                                        trackColor={{ false: '#767577', true: Colors.light.primary }}
-                                    />
-                                </View>
-                            </>
-                        )}
+                                ) : (
+                                    <>
+                                        <View style={styles.categoryContainer}>
+                                            {emiTypes.map((type) => (
+                                                <TouchableOpacity
+                                                    key={type.id}
+                                                    style={[styles.catChip, emiType === type.id && styles.catChipActive]}
+                                                    onPress={() => setEmiType(type.id)}
+                                                >
+                                                    <Text style={[styles.catChipText, emiType === type.id && styles.catChipTextActive]}>{type.label}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                        {emiType === 'debt' && (
+                                            <TextInput
+                                                style={styles.input}
+                                                placeholder="Tenure (e.g. 12 months)"
+                                                keyboardType="numeric"
+                                                value={tenure}
+                                                onChangeText={setTenure}
+                                            />
+                                        )}
+                                        <View style={styles.switchRow}>
+                                            <View>
+                                                <Text style={styles.switchLabel}>Start Next Month</Text>
+                                                <Text style={styles.switchSub}>Exclude from current dashboard remit</Text>
+                                            </View>
+                                            <Switch
+                                                value={startNextMonth}
+                                                onValueChange={setStartNextMonth}
+                                                trackColor={{ false: '#767577', true: Colors.light.primary }}
+                                            />
+                                        </View>
+                                    </>
+                                )}
 
-                        <TouchableOpacity style={styles.dateSelector} onPress={() => setShowPicker(true)}>
-                            <Calendar color="#666" size={20} />
-                            <Text style={styles.dateText}>
-                                {activeTab === 'expense' ? 'Expense Date' : 'EMI Start/Due Date'}: {date.toLocaleDateString()}
-                            </Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity style={styles.dateSelector} onPress={() => setShowPicker(true)}>
+                                    <Calendar color="#666" size={20} />
+                                    <Text style={styles.dateText}>
+                                        {activeTab === 'expense' ? 'Expense Date' : 'EMI Start/Due Date'}: {date.toLocaleDateString()}
+                                    </Text>
+                                </TouchableOpacity>
 
-                        {showPicker && (
-                            <DateTimePicker value={date} mode="date" display="default" onChange={onDateChange} />
-                        )}
+                                {showPicker && (
+                                    <DateTimePicker value={date} mode="date" display="default" onChange={onDateChange} />
+                                )}
 
-                        <TouchableOpacity style={styles.submitButton} onPress={handleAdd}>
-                            <Text style={styles.submitButtonText}>Confirm Entry</Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity style={styles.submitButton} onPress={handleAdd}>
+                                    <Text style={styles.submitButtonText}>Confirm Entry</Text>
+                                </TouchableOpacity>
+                            </ScrollView>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
             <CustomPopup
                 visible={popup.visible}
@@ -252,6 +275,12 @@ const styles = StyleSheet.create({
     dateText: { marginLeft: 10, color: '#666', fontWeight: '600' },
     submitButton: { backgroundColor: Colors.light.primary, padding: 20, borderRadius: 12, alignItems: 'center' },
     submitButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+    bankSelector: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15 },
+    bankChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#eee', marginRight: 8, marginBottom: 8, backgroundColor: '#f9f9f9' },
+    bankChipActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
+    bankChipText: { fontSize: 12, color: '#666', fontWeight: '700' },
+    bankChipTextActive: { color: '#fff' },
+    label: { fontSize: 13, fontWeight: '700', marginBottom: 10, color: '#666' },
     empty: { padding: 60, alignItems: 'center' },
     switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#eee' },
     switchLabel: { fontWeight: '700', fontSize: 14, color: '#333' },

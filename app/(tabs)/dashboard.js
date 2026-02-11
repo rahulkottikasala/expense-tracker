@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Spacing, Typography } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
@@ -17,7 +17,7 @@ const screenWidth = Dimensions.get("window").width;
 export default function Dashboard() {
     const {
         data, balance, totalIncome, totalExpenses, totalEMIs, totalBankBalance, totalEMIOutstanding, nextMonthNeeded,
-        addIncome, confirmEMIPayment, addBank, takeMonthlySnapshot, loading
+        addIncome, addExpense, confirmEMIPayment, addBank, takeMonthlySnapshot, loading
     } = useTransactions();
     const router = useRouter();
     const [quickAddVisible, setQuickAddVisible] = useState(false);
@@ -28,6 +28,10 @@ export default function Dashboard() {
     const [bankModalVisible, setBankModalVisible] = useState(false);
     const [bankName, setBankName] = useState('');
     const [bankBal, setBankBal] = useState('');
+
+    const [bankSelectionModalVisible, setBankSelectionModalVisible] = useState(false);
+    const [pendingEmiId, setPendingEmiId] = useState(null);
+    const [selectedBankId, setSelectedBankId] = useState('');
 
     const [popup, setPopup] = useState({ visible: false, type: 'info', title: '', message: '', confirmAction: null });
 
@@ -58,14 +62,45 @@ export default function Dashboard() {
 
     const submitQuickAdd = () => {
         if (!quickAmount) return;
-        addIncome({
-            name: quickTitle,
-            amount: parseFloat(quickAmount),
-            type: quickType,
-            date: new Date().toLocaleDateString(),
-        });
+        if (quickType === 'expense') {
+            addExpense({
+                name: quickTitle,
+                amount: parseFloat(quickAmount),
+                category: 'Other',
+                date: new Date().toLocaleDateString(),
+            }, selectedBankId);
+        } else {
+            addIncome({
+                name: quickTitle,
+                amount: parseFloat(quickAmount),
+                type: quickType,
+                date: new Date().toLocaleDateString(),
+            }, selectedBankId);
+        }
         setQuickAmount('');
+        setSelectedBankId('');
         setQuickAddVisible(false);
+    };
+
+    const handleConfirmEMI = (id) => {
+        const emi = data.emis.find(e => e.id === id);
+        if (emi && emi.bankId) {
+            confirmEMIPayment(id, emi.bankId);
+        } else {
+            setPendingEmiId(id);
+            setBankSelectionModalVisible(true);
+        }
+    };
+
+    const submitEmiWithBank = () => {
+        if (!selectedBankId) {
+            Alert.alert("Error", "Please select a bank account");
+            return;
+        }
+        confirmEMIPayment(pendingEmiId, selectedBankId);
+        setBankSelectionModalVisible(false);
+        setPendingEmiId(null);
+        setSelectedBankId('');
     };
 
     const handleAddBank = () => {
@@ -168,41 +203,99 @@ export default function Dashboard() {
                     <View style={{ width: 20 }} />
                 </ScrollView>
 
-                {/* Daily Flux Row */}
-                <Text style={styles.sectionTitle}>Daily Flux</Text>
-                <View style={styles.dailyFluxRow}>
-                    <Animated.View entering={FadeInRight.delay(400)} style={[styles.dailyCard, { borderLeftColor: Colors.light.success }]}>
-                        <View style={styles.dailyHeader}>
-                            <ArrowUpCircle size={16} color={Colors.light.success} />
-                            <Text style={styles.dailyLabel}>Today's Income</Text>
+                {/* Redesigned Daily Flux Card */}
+                <Animated.View entering={FadeInUp.delay(350)} style={styles.fluxCardPremium}>
+                    <View style={styles.fluxHeaderPremium}>
+                        <Activity size={20} color="#fff" />
+                        <Text style={styles.fluxTitlePremium}>Today's Cash Flow</Text>
+                        <View style={styles.fluxDateBadge}>
+                            <Text style={styles.fluxDateText}>{todayStr}</Text>
                         </View>
-                        <Text style={[styles.dailyAmount, { color: Colors.light.success }]}>+ ₹{dailyIncome.toLocaleString()}</Text>
-                    </Animated.View>
-                    <Animated.View entering={FadeInRight.delay(500)} style={[styles.dailyCard, { borderLeftColor: Colors.light.danger }]}>
-                        <View style={styles.dailyHeader}>
-                            <ArrowDownCircle size={16} color={Colors.light.danger} />
-                            <Text style={styles.dailyLabel}>Today's Spent</Text>
-                        </View>
-                        <Text style={[styles.dailyAmount, { color: Colors.light.danger }]}>- ₹{dailyExpense.toLocaleString()}</Text>
-                    </Animated.View>
-                </View>
+                    </View>
 
-                {/* Quick Actions (Moved Top) */}
-                <Text style={styles.sectionTitle}>Quick Income Entry</Text>
-                <View style={styles.quickActionRow}>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleQuickAdd('profit', 'Freelance Work')}>
-                        <Activity color={Colors.light.primary} size={24} />
-                        <Text style={styles.actionText}>Freelance</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleQuickAdd('daily', 'Software Gig')}>
-                        <Briefcase color={Colors.light.secondary} size={24} />
-                        <Text style={styles.actionText}>Eng. Gig</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleQuickAdd('daily', 'Taxi/Misc')}>
-                        <TrendingUp color={Colors.light.accent} size={24} />
-                        <Text style={styles.actionText}>Daily Gig</Text>
-                    </TouchableOpacity>
-                </View>
+                    <View style={styles.fluxBodyPremium}>
+                        <View style={styles.fluxStatItem}>
+                            <View style={[styles.fluxIconBox, { backgroundColor: 'rgba(34, 197, 94, 0.2)' }]}>
+                                <ArrowUpCircle size={20} color="#4ADE80" />
+                            </View>
+                            <View>
+                                <Text style={styles.fluxStatLabel}>Income</Text>
+                                <Text style={[styles.fluxStatValue, { color: '#4ADE80' }]}>+ ₹{dailyIncome.toLocaleString()}</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.fluxDivider} />
+
+                        <View style={styles.fluxStatItem}>
+                            <View style={[styles.fluxIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                                <ArrowDownCircle size={20} color="#F87171" />
+                            </View>
+                            <View>
+                                <Text style={styles.fluxStatLabel}>Spent</Text>
+                                <Text style={[styles.fluxStatValue, { color: '#F87171' }]}>- ₹{dailyExpense.toLocaleString()}</Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    <View style={styles.fluxFooterPremium}>
+                        <View style={styles.fluxProgressBarContainer}>
+                            <View style={[styles.fluxProgressBar, {
+                                width: `${Math.min(100, (dailyExpense / (dailyIncome || 1)) * 100)}%`,
+                                backgroundColor: dailyExpense > dailyIncome ? '#F87171' : '#60A5FA'
+                            }]} />
+                        </View>
+                        <Text style={styles.fluxNetText}>
+                            Net: <Text style={{ fontWeight: '900', color: dailyIncome - dailyExpense >= 0 ? '#4ADE80' : '#F87171' }}>
+                                ₹{(dailyIncome - dailyExpense).toLocaleString()}
+                            </Text>
+                        </Text>
+                    </View>
+                </Animated.View>
+
+                {/* Unified Quick Log Card */}
+                <Animated.View entering={FadeInUp.delay(400)} style={styles.quickLogCard}>
+                    <Text style={styles.quickLogTitle}>Quick Settlements</Text>
+
+                    <View style={styles.quickLogGrid}>
+                        {/* Income Row */}
+                        <View style={styles.quickLogGroup}>
+                            <Text style={styles.groupLabel}>Income</Text>
+                            <View style={styles.groupRow}>
+                                <TouchableOpacity style={[styles.quickBtn, styles.incomeBtn]} onPress={() => handleQuickAdd('profit', 'Freelance Work')}>
+                                    <Activity color="#22C55E" size={20} />
+                                    <Text style={styles.quickBtnText}>Freelance</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.quickBtn, styles.incomeBtn]} onPress={() => handleQuickAdd('daily', 'Software Gig')}>
+                                    <Briefcase color="#10B981" size={20} />
+                                    <Text style={styles.quickBtnText}>Gig</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.quickBtn, styles.incomeBtn]} onPress={() => handleQuickAdd('daily', 'Taxi/Misc')}>
+                                    <TrendingUp color="#34D399" size={20} />
+                                    <Text style={styles.quickBtnText}>Daily</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* Expense Row */}
+                        <View style={styles.quickLogGroup}>
+                            <Text style={styles.groupLabel}>Expenses</Text>
+                            <View style={styles.groupRow}>
+                                <TouchableOpacity style={[styles.quickBtn, styles.expenseBtn]} onPress={() => handleQuickAdd('expense', 'Food & Drinks')}>
+                                    <HeartHandshake color="#EF4444" size={20} />
+                                    <Text style={styles.quickBtnText}>Food</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.quickBtn, styles.expenseBtn]} onPress={() => handleQuickAdd('expense', 'Transport')}>
+                                    <TrendingDown color="#F43F5E" size={20} />
+                                    <Text style={styles.quickBtnText}>Travel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.quickBtn, styles.expenseBtn]} onPress={() => handleQuickAdd('expense', 'Shopping')}>
+                                    <Plus color="#FB7185" size={20} />
+                                    <Text style={styles.quickBtnText}>Buy</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </Animated.View>
 
                 {/* EMI Confirmation Section */}
                 {pendingEMIs.length > 0 && (
@@ -257,7 +350,7 @@ export default function Dashboard() {
                                     <TouchableOpacity
                                         style={[styles.premiumPayBtn, { shadowColor: statusColor }]}
                                         onPress={() => {
-                                            showPopup('confirm', 'Confirm Payment', `Mark ₹${emi.amount.toLocaleString()} as PAID? Tenure will decrease to ${current - 1} months.`, () => confirmEMIPayment(emi.id));
+                                            showPopup('confirm', 'Confirm Payment', `Mark ₹${emi.amount.toLocaleString()} as PAID? Tenure will decrease to ${current - 1} months.`, () => handleConfirmEMI(emi.id));
                                         }}
                                     >
                                         <Text style={styles.premiumPayBtnText}>Mark as Settled</Text>
@@ -346,32 +439,74 @@ export default function Dashboard() {
 
                 <View style={{ height: 120 }} />
 
-                {/* Modals */}
                 <Modal visible={quickAddVisible} transparent animationType="fade">
-                    <View style={styles.modalOverlay}>
-                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setQuickAddVisible(false)} />
-                        <View style={styles.qModalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Quick Add: {quickTitle}</Text>
-                                <TouchableOpacity onPress={() => setQuickAddVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                        <View style={styles.modalOverlay}>
+                            <TouchableOpacity style={{ flex: 1 }} onPress={() => setQuickAddVisible(false)} />
+                            <View style={styles.qModalContent}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Quick Add: {quickTitle}</Text>
+                                    <TouchableOpacity onPress={() => setQuickAddVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                                </View>
+                                <TextInput style={styles.qInput} placeholder="Amount ₹" keyboardType="numeric" autoFocus value={quickAmount} onChangeText={setQuickAmount} />
+
+                                <Text style={styles.modalLabelSmall}>Select Bank Account</Text>
+                                <View style={styles.bankPickerSmall}>
+                                    {(data.banks || []).map(b => (
+                                        <TouchableOpacity
+                                            key={b.id}
+                                            style={[styles.bankChipSmall, selectedBankId === b.id && styles.bankChipSmallActive]}
+                                            onPress={() => setSelectedBankId(b.id)}
+                                        >
+                                            <Text style={[styles.bankChipTextSmall, selectedBankId === b.id && styles.bankChipTextSmallActive]}>{b.name}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TouchableOpacity style={styles.qBtn} onPress={submitQuickAdd}><Text style={styles.qBtnText}>Save Now</Text></TouchableOpacity>
                             </View>
-                            <TextInput style={styles.qInput} placeholder="Amount ₹" keyboardType="numeric" autoFocus value={quickAmount} onChangeText={setQuickAmount} />
-                            <TouchableOpacity style={styles.qBtn} onPress={submitQuickAdd}><Text style={styles.qBtnText}>Save Now</Text></TouchableOpacity>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </Modal>
 
                 <Modal visible={bankModalVisible} transparent animationType="fade">
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                        <View style={styles.modalOverlay}>
+                            <TouchableOpacity style={{ flex: 1 }} onPress={() => setBankModalVisible(false)} />
+                            <View style={styles.qModalContent}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Link Bank Account</Text>
+                                    <TouchableOpacity onPress={() => setBankModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                                </View>
+                                <TextInput style={styles.qInput} placeholder="Bank Name" value={bankName} onChangeText={setBankName} />
+                                <TextInput style={styles.qInput} placeholder="Balance ₹" keyboardType="numeric" value={bankBal} onChangeText={setBankBal} />
+                                <TouchableOpacity style={styles.qBtn} onPress={handleAddBank}><Text style={styles.qBtnText}>Add Bank</Text></TouchableOpacity>
+                            </View>
+                        </View>
+                    </KeyboardAvoidingView>
+                </Modal>
+
+                <Modal visible={bankSelectionModalVisible} transparent animationType="fade">
                     <View style={styles.modalOverlay}>
-                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setBankModalVisible(false)} />
+                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setBankSelectionModalVisible(false)} />
                         <View style={styles.qModalContent}>
                             <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Link Bank Account</Text>
-                                <TouchableOpacity onPress={() => setBankModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                                <Text style={styles.modalTitle}>Confirm EMI Payment</Text>
+                                <TouchableOpacity onPress={() => setBankSelectionModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
                             </View>
-                            <TextInput style={styles.qInput} placeholder="Bank Name" value={bankName} onChangeText={setBankName} />
-                            <TextInput style={styles.qInput} placeholder="Balance ₹" keyboardType="numeric" value={bankBal} onChangeText={setBankBal} />
-                            <TouchableOpacity style={styles.qBtn} onPress={handleAddBank}><Text style={styles.qBtnText}>Add Bank</Text></TouchableOpacity>
+                            <Text style={styles.modalLabelSmall}>Select Bank to DEDUCT from:</Text>
+                            <View style={styles.bankPickerSmall}>
+                                {(data.banks || []).map(b => (
+                                    <TouchableOpacity
+                                        key={b.id}
+                                        style={[styles.bankChipSmall, selectedBankId === b.id && styles.bankChipSmallActive]}
+                                        onPress={() => setSelectedBankId(b.id)}
+                                    >
+                                        <Text style={[styles.bankChipTextSmall, selectedBankId === b.id && styles.bankChipTextSmallActive]}>{b.name}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <TouchableOpacity style={styles.qBtn} onPress={submitEmiWithBank}><Text style={styles.qBtnText}>Confirm Settlement</Text></TouchableOpacity>
                         </View>
                     </View>
                 </Modal>
@@ -464,5 +599,41 @@ const styles = StyleSheet.create({
     premiumPayBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', paddingVertical: 14, borderRadius: 14, elevation: 6, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6 },
     premiumPayBtnText: { color: '#fff', fontWeight: '800', fontSize: 14, marginRight: 8 },
     footer: { paddingVertical: 30, alignItems: 'center' },
-    footerText: { color: '#999', fontSize: 11, fontWeight: '600', marginLeft: 6 }
+    footerText: { color: '#999', fontSize: 11, fontWeight: '600', marginLeft: 6 },
+
+    // Redesigned Flux Card Styles
+    fluxCardPremium: { backgroundColor: '#1E293B', borderRadius: 24, padding: 24, marginBottom: 20, elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10 },
+    fluxHeaderPremium: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+    fluxTitlePremium: { color: '#fff', fontSize: 16, fontWeight: '800', marginLeft: 10, flex: 1 },
+    fluxDateBadge: { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    fluxDateText: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '700' },
+    fluxBodyPremium: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+    fluxStatItem: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    fluxIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+    fluxStatLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: '600' },
+    fluxStatValue: { fontSize: 16, fontWeight: '900', marginTop: 2 },
+    fluxDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 15 },
+    fluxFooterPremium: { paddingTop: 20, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' },
+    fluxProgressBarContainer: { height: 4, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 2, marginBottom: 12 },
+    fluxProgressBar: { height: '100%', borderRadius: 2 },
+    fluxNetText: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '700', textAlign: 'right' },
+
+    modalLabelSmall: { fontSize: 12, fontWeight: '700', color: '#666', marginBottom: 10 },
+    bankPickerSmall: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 20 },
+    bankChipSmall: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f5f5f5', marginRight: 8, marginBottom: 8, borderWidth: 1, borderColor: '#eee' },
+    bankChipSmallActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
+    bankChipTextSmall: { fontSize: 11, fontWeight: '700', color: '#666' },
+    bankChipTextSmallActive: { color: '#fff' },
+
+    // Combined Quick Log Card Styles
+    quickLogCard: { backgroundColor: '#fff', borderRadius: 28, padding: 24, marginBottom: 20, borderWidth: 1, borderColor: '#f1f5f9', elevation: 4, shadowColor: '#94a3b8', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 15 },
+    quickLogTitle: { fontSize: 16, fontWeight: '900', color: '#1E293B', marginBottom: 20, letterSpacing: -0.5 },
+    quickLogGrid: { gap: 20 },
+    quickLogGroup: {},
+    groupLabel: { fontSize: 10, fontWeight: '800', color: '#94A3B8', textTransform: 'uppercase', marginBottom: 12, letterSpacing: 1 },
+    groupRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    quickBtn: { width: '31%', paddingVertical: 14, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC' },
+    incomeBtn: { borderBottomWidth: 3, borderBottomColor: '#22C55E' },
+    expenseBtn: { borderBottomWidth: 3, borderBottomColor: '#EF4444' },
+    quickBtnText: { marginTop: 6, fontSize: 10, fontWeight: '800', color: '#475569' }
 });

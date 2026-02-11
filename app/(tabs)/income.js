@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
@@ -18,6 +18,7 @@ export default function IncomeScreen() {
     const [date, setDate] = useState(new Date());
     const [showPicker, setShowPicker] = useState(false);
     const [successVisible, setSuccessVisible] = useState(false);
+    const [bankId, setBankId] = useState('');
 
     const incomeTypes = [
         { id: 'job', label: 'Salary/Job', icon: Briefcase },
@@ -33,7 +34,7 @@ export default function IncomeScreen() {
             type,
             date: date.toLocaleDateString(),
             isVariable: type !== 'job'
-        });
+        }, bankId);
         resetForm();
         setModalVisible(false);
         setSuccessVisible(true);
@@ -44,6 +45,7 @@ export default function IncomeScreen() {
         setAmount('');
         setType('job');
         setDate(new Date());
+        setBankId('');
     };
 
     const onDateChange = (event, selectedDate) => {
@@ -87,46 +89,66 @@ export default function IncomeScreen() {
             </ScrollView>
 
             <Modal visible={modalVisible} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <TouchableOpacity style={{ flex: 1 }} onPress={() => setModalVisible(false)} />
-                    <View style={styles.modalContent}>
-                        <View style={styles.swipeBar} />
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Add Income</Text>
-                            <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#000" size={24} /></TouchableOpacity>
-                        </View>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <View style={styles.modalOverlay}>
+                        <TouchableOpacity style={{ flex: 1 }} onPress={() => setModalVisible(false)} />
+                        <View style={styles.modalContent}>
+                            <View style={styles.swipeBar} />
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Add Income</Text>
+                                <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#000" size={24} /></TouchableOpacity>
+                            </View>
 
-                        <Text style={styles.label}>Category</Text>
-                        <View style={styles.typeSelector}>
-                            {incomeTypes.map(t => (
-                                <TouchableOpacity
-                                    key={t.id}
-                                    style={[styles.typeBtn, type === t.id && styles.typeBtnActive]}
-                                    onPress={() => setType(t.id)}
-                                >
-                                    <t.icon size={18} color={type === t.id ? '#fff' : '#666'} />
-                                    <Text style={[styles.typeBtnText, type === t.id && styles.typeBtnTextActive]}>{t.label}</Text>
+                            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                <Text style={styles.label}>Category</Text>
+                                <View style={styles.typeSelector}>
+                                    {incomeTypes.map(t => (
+                                        <TouchableOpacity
+                                            key={t.id}
+                                            style={[styles.typeBtn, type === t.id && styles.typeBtnActive]}
+                                            onPress={() => setType(t.id)}
+                                        >
+                                            <t.icon size={18} color={type === t.id ? '#fff' : '#666'} />
+                                            <Text style={[styles.typeBtnText, type === t.id && styles.typeBtnTextActive]}>{t.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TextInput style={styles.input} placeholder="Source (e.g. Freelance project, Salary)" value={name} onChangeText={setName} />
+                                <TextInput style={styles.input} placeholder="Amount ₹" keyboardType="numeric" value={amount} onChangeText={setAmount} />
+
+                                <Text style={styles.label}>Deposit To</Text>
+                                <View style={styles.bankSelector}>
+                                    {(data.banks || []).map(bank => (
+                                        <TouchableOpacity
+                                            key={bank.id}
+                                            style={[styles.bankChip, bankId === bank.id && styles.bankChipActive]}
+                                            onPress={() => setBankId(bank.id)}
+                                        >
+                                            <Text style={[styles.bankChipText, bankId === bank.id && styles.bankChipTextActive]}>{bank.name}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <TouchableOpacity style={styles.dateSelector} onPress={() => setShowPicker(true)}>
+                                    <Calendar color="#666" size={20} />
+                                    <Text style={styles.dateText}>Transaction Date: {date.toLocaleDateString()}</Text>
                                 </TouchableOpacity>
-                            ))}
+
+                                {showPicker && (
+                                    <DateTimePicker value={date} mode="date" display="default" onChange={onDateChange} />
+                                )}
+
+                                <TouchableOpacity style={styles.submitButton} onPress={handleAdd}>
+                                    <Text style={styles.submitButtonText}>Confirm Earning</Text>
+                                </TouchableOpacity>
+                            </ScrollView>
                         </View>
-
-                        <TextInput style={styles.input} placeholder="Source (e.g. Freelance project, Salary)" value={name} onChangeText={setName} />
-                        <TextInput style={styles.input} placeholder="Amount ₹" keyboardType="numeric" value={amount} onChangeText={setAmount} />
-
-                        <TouchableOpacity style={styles.dateSelector} onPress={() => setShowPicker(true)}>
-                            <Calendar color="#666" size={20} />
-                            <Text style={styles.dateText}>Transaction Date: {date.toLocaleDateString()}</Text>
-                        </TouchableOpacity>
-
-                        {showPicker && (
-                            <DateTimePicker value={date} mode="date" display="default" onChange={onDateChange} />
-                        )}
-
-                        <TouchableOpacity style={styles.submitButton} onPress={handleAdd}>
-                            <Text style={styles.submitButtonText}>Confirm Earning</Text>
-                        </TouchableOpacity>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
             <CustomPopup
                 visible={successVisible}
@@ -171,5 +193,10 @@ const styles = StyleSheet.create({
     dateText: { marginLeft: 10, color: '#666', fontWeight: '600' },
     submitButton: { backgroundColor: Colors.light.primary, padding: 20, borderRadius: 12, alignItems: 'center' },
     submitButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+    bankSelector: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15 },
+    bankChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#eee', marginRight: 8, marginBottom: 8, backgroundColor: '#f9f9f9' },
+    bankChipActive: { backgroundColor: Colors.light.primary, borderColor: Colors.light.primary },
+    bankChipText: { fontSize: 12, color: '#666', fontWeight: '700' },
+    bankChipTextActive: { color: '#fff' },
     empty: { padding: 60, alignItems: 'center' }
 });

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Theme';
 import { useTransactions } from '../../hooks/useTransactions';
 import { Database, Download, Upload, Trash2, Info, Edit2, Pencil, Landmark, Wallet, CreditCard, Clock, X, CircleAlert, FileText, History } from 'lucide-react-native';
-import * as FileSystem from 'expo-file-system';
+import { cacheDirectory, writeAsStringAsync, readAsStringAsync, StorageAccessFramework } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import CustomPopup from '../../components/CustomPopup';
@@ -28,6 +28,10 @@ export default function SettingsScreen() {
 
     // View state for Grid vs List
     const [activeSection, setActiveSection] = useState(null); // 'banks', 'income', 'expenses', 'emis'
+
+    // Export Options Modal
+    const [exportModalVisible, setExportModalVisible] = useState(false);
+    const [pendingExportFormat, setPendingExportFormat] = useState('json'); // 'json' or 'csv'
 
     // Management Modals
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -73,33 +77,63 @@ export default function SettingsScreen() {
         showPopup('success', 'Closure Completed', `EMI for ${closeEMI.name} has been closed.`);
     };
 
-    const handleExport = async (format = 'json') => {
+    const handleExport = (format = 'json') => {
+        setPendingExportFormat(format);
+        setExportModalVisible(true);
+    };
+
+    const executeExport = async (action = 'share') => {
+        setExportModalVisible(false);
         try {
             let content, filename, mimeType;
-            if (format === 'json') {
+            if (pendingExportFormat === 'json') {
                 content = JSON.stringify(data, null, 2);
-                filename = `nexus_cashflow_backup_${new Date().toISOString().split('T')[0]}.json`;
+                filename = `nexus_backup_${new Date().toISOString().split('T')[0]}.json`;
                 mimeType = 'application/json';
             } else {
-                // CSV Export for history
                 const history = data.history || [];
                 const headers = 'Date,Type,Title,Amount,Category\n';
                 const rows = history.map(h => `${new Date(h.timestamp).toLocaleDateString()},${h.type},"${h.title}",${h.amount},${h.category}`).join('\n');
                 content = headers + rows;
-                filename = `nexus_cashflow_history_${new Date().toISOString().split('T')[0]}.csv`;
+                filename = `nexus_history_${new Date().toISOString().split('T')[0]}.csv`;
                 mimeType = 'text/csv';
             }
 
-            const fileUri = FileSystem.cacheDirectory + filename;
-            await FileSystem.writeAsStringAsync(fileUri, content);
+            const fileUri = (cacheDirectory || '').endsWith('/')
+                ? cacheDirectory + filename
+                : `${cacheDirectory}/${filename}`;
+            await writeAsStringAsync(fileUri, content);
 
-            if (await Sharing.isAvailableAsync()) {
-                await Sharing.shareAsync(fileUri, { mimeType, dialogTitle: `Export ${format.toUpperCase()}` });
+            if (action === 'share') {
+                if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(fileUri, { mimeType, dialogTitle: `Export ${pendingExportFormat.toUpperCase()}` });
+                } else {
+                    showPopup('error', 'Error', 'Sharing not available on this device');
+                }
             } else {
-                showPopup('error', 'Error', 'Sharing not available on this device');
+                // Download / Save to Device
+                if (Platform.OS === 'android') {
+                    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+                    if (permissions.granted) {
+                        const base64 = await readAsStringAsync(fileUri, { encoding: 'base64' });
+                        await StorageAccessFramework.createFileAsync(permissions.directoryUri, filename, mimeType)
+                            .then(async (uri) => {
+                                await writeAsStringAsync(uri, base64, { encoding: 'base64' });
+                                showPopup('success', 'Saved!', 'File has been saved to your selected directory.');
+                            })
+                            .catch(e => {
+                                console.error(e);
+                                showPopup('error', 'Save Failed', 'Could not save file to device.');
+                            });
+                    }
+                } else {
+                    // On iOS, shareAsync handles "Save to Files" natively
+                    await Sharing.shareAsync(fileUri, { mimeType, dialogTitle: `Save ${pendingExportFormat.toUpperCase()}` });
+                }
             }
         } catch (e) {
-            showPopup('error', 'Export Failed', 'Unable to generate backup file');
+            console.error('Export Error:', e);
+            showPopup('error', 'Export Failed', `Unable to generate backup. ${e.message || e.toString()}`);
         }
     };
 
@@ -109,7 +143,10 @@ export default function SettingsScreen() {
             if (result.canceled) return;
 
             const fileUri = result.assets[0].uri;
-            const content = await FileSystem.readAsStringAsync(fileUri);
+            console.log('Importing from:', fileUri);
+            const content = await readAsStringAsync(fileUri);
+            if (!content) throw new Error('File is empty');
+
             const parsed = JSON.parse(content);
 
             showPopup('confirm', 'Confirm Import', 'This will OVERWRITE all your current data with the backup file. Proceed?', async () => {
@@ -313,75 +350,83 @@ export default function SettingsScreen() {
 
                 {/* Modals for Editing */}
                 <Modal visible={editModalVisible} transparent animationType="slide">
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Update Record</Text>
-                                <TouchableOpacity onPress={() => setEditModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
-                            </View>
-                            {selectedItem && (
-                                <View>
-                                    <Text style={styles.label}>Title</Text>
-                                    <TextInput style={styles.input} value={selectedItem.name} onChangeText={t => setSelectedItem({ ...selectedItem, name: t })} />
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContent}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Update Record</Text>
+                                    <TouchableOpacity onPress={() => setEditModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                                </View>
+                                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                    {selectedItem && (
+                                        <View>
+                                            <Text style={styles.label}>Title</Text>
+                                            <TextInput style={styles.input} value={selectedItem.name} onChangeText={t => setSelectedItem({ ...selectedItem, name: t })} />
 
-                                    <Text style={styles.label}>Amount (₹)</Text>
-                                    <TextInput style={styles.input} keyboardType="numeric" value={(selectedItem.balance !== undefined ? selectedItem.balance : selectedItem.amount).toString()} onChangeText={t => setSelectedItem({ ...selectedItem, [selectedItem.balance !== undefined ? 'balance' : 'amount']: parseFloat(t) || 0 })} />
+                                            <Text style={styles.label}>Amount (₹)</Text>
+                                            <TextInput style={styles.input} keyboardType="numeric" value={(selectedItem.balance !== undefined ? selectedItem.balance : selectedItem.amount).toString()} onChangeText={t => setSelectedItem({ ...selectedItem, [selectedItem.balance !== undefined ? 'balance' : 'amount']: parseFloat(t) || 0 })} />
 
-                                    {editingType === 'emi' && (
-                                        <>
-                                            <Text style={styles.label}>Due Date (Day of Month)</Text>
-                                            <TextInput
-                                                style={styles.input}
-                                                value={selectedItem.date}
-                                                onChangeText={t => setSelectedItem({ ...selectedItem, date: t })}
-                                            />
-                                            {selectedItem.type === 'debt' && (
+                                            {editingType === 'emi' && (
                                                 <>
-                                                    <Text style={styles.label}>Pending Tenure (Months left)</Text>
+                                                    <Text style={styles.label}>Due Date (Day of Month)</Text>
                                                     <TextInput
                                                         style={styles.input}
-                                                        keyboardType="numeric"
-                                                        value={selectedItem.remainingTenure?.toString()}
-                                                        onChangeText={t => setSelectedItem({ ...selectedItem, remainingTenure: parseInt(t) || 0 })}
+                                                        value={selectedItem.date}
+                                                        onChangeText={t => setSelectedItem({ ...selectedItem, date: t })}
                                                     />
+                                                    {selectedItem.type === 'debt' && (
+                                                        <>
+                                                            <Text style={styles.label}>Pending Tenure (Months left)</Text>
+                                                            <TextInput
+                                                                style={styles.input}
+                                                                keyboardType="numeric"
+                                                                value={selectedItem.remainingTenure?.toString()}
+                                                                onChangeText={t => setSelectedItem({ ...selectedItem, remainingTenure: parseInt(t) || 0 })}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </>
                                             )}
-                                        </>
+                                        </View>
                                     )}
-                                </View>
-                            )}
-                            <TouchableOpacity style={styles.btn} onPress={handleEditSave}><Text style={styles.btnText}>Save Changes</Text></TouchableOpacity>
+                                    <TouchableOpacity style={styles.btn} onPress={handleEditSave}><Text style={styles.btnText}>Save Changes</Text></TouchableOpacity>
+                                </ScrollView>
+                            </View>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </Modal>
 
                 <Modal visible={closeModalVisible} transparent animationType="slide">
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <View style={styles.modalHeader}>
-                                <Text style={styles.modalTitle}>Settle & Close EMI</Text>
-                                <TouchableOpacity onPress={() => setCloseModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
-                            </View>
-                            <Text style={styles.label}>Total Settlement Amount (Remaining Months * EMI)</Text>
-                            <TextInput style={styles.input} keyboardType="numeric" value={closureAmt} onChangeText={setClosureAmt} />
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContent}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Settle & Close EMI</Text>
+                                    <TouchableOpacity onPress={() => setCloseModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                                </View>
+                                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                                    <Text style={styles.label}>Total Settlement Amount (Remaining Months * EMI)</Text>
+                                    <TextInput style={styles.input} keyboardType="numeric" value={closureAmt} onChangeText={setClosureAmt} />
 
-                            <Text style={styles.label}>Select Payment Source</Text>
-                            <View style={styles.bankPicker}>
-                                {data.banks.map(b => (
-                                    <TouchableOpacity
-                                        key={b.id}
-                                        style={[styles.bankChoice, targetBankId === b.id && styles.bankChoiceActive]}
-                                        onPress={() => setTargetBankId(b.id)}
-                                    >
-                                        <Text style={[styles.bankChoiceText, targetBankId === b.id && styles.bankChoiceTextActive]}>{b.name}</Text>
+                                    <Text style={styles.label}>Select Payment Source</Text>
+                                    <View style={styles.bankPicker}>
+                                        {data.banks.map(b => (
+                                            <TouchableOpacity
+                                                key={b.id}
+                                                style={[styles.bankChoice, targetBankId === b.id && styles.bankChoiceActive]}
+                                                onPress={() => setTargetBankId(b.id)}
+                                            >
+                                                <Text style={[styles.bankChoiceText, targetBankId === b.id && styles.bankChoiceTextActive]}>{b.name}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                    <TouchableOpacity style={[styles.btn, { backgroundColor: Colors.light.danger }]} onPress={handleForceClose}>
+                                        <Text style={styles.btnText}>Close EMI Forever</Text>
                                     </TouchableOpacity>
-                                ))}
+                                </ScrollView>
                             </View>
-                            <TouchableOpacity style={[styles.btn, { backgroundColor: Colors.light.danger }]} onPress={handleForceClose}>
-                                <Text style={styles.btnText}>Close EMI Forever</Text>
-                            </TouchableOpacity>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                 </Modal>
                 <View style={styles.footer}>
                     <History size={16} color="#999" />
@@ -397,6 +442,38 @@ export default function SettingsScreen() {
                 onClose={() => setPopup({ ...popup, visible: false })}
                 onConfirm={popup.confirmAction}
             />
+
+            {/* Export Options Modal */}
+            <Modal visible={exportModalVisible} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <TouchableOpacity style={{ flex: 1 }} onPress={() => setExportModalVisible(false)} />
+                    <View style={styles.exportModalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Export Options</Text>
+                            <TouchableOpacity onPress={() => setExportModalVisible(false)}><X size={24} color="#000" /></TouchableOpacity>
+                        </View>
+                        <Text style={styles.exportSub}>How would you like to handle your {pendingExportFormat.toUpperCase()} file?</Text>
+
+                        <View style={styles.exportOptionsRow}>
+                            <TouchableOpacity style={styles.exportOption} onPress={() => executeExport('share')}>
+                                <View style={[styles.exportIcon, { backgroundColor: Colors.light.primary + '15' }]}>
+                                    <Upload size={24} color={Colors.light.primary} />
+                                </View>
+                                <Text style={styles.exportText}>Share File</Text>
+                                <Text style={styles.exportTip}>Send via apps</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.exportOption} onPress={() => executeExport('download')}>
+                                <View style={[styles.exportIcon, { backgroundColor: Colors.light.success + '15' }]}>
+                                    <Download size={24} color={Colors.light.success} />
+                                </View>
+                                <Text style={styles.exportText}>{Platform.OS === 'android' ? 'Download' : 'Save to Files'}</Text>
+                                <Text style={styles.exportTip}>Store locally</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -452,6 +529,15 @@ const styles = StyleSheet.create({
     bankChoiceActive: { backgroundColor: Colors.light.primary },
     bankChoiceText: { fontWeight: '700', fontSize: 13, color: '#666' },
     bankChoiceTextActive: { color: '#fff' },
-    footer: { padding: 40, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-    footerText: { color: '#999', fontSize: 12, marginLeft: 8 }
+    footer: { paddingVertical: 30, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+    footerText: { color: '#999', fontSize: 11, fontWeight: '600', marginLeft: 6 },
+
+    // Export Modal Styles
+    exportModalContent: { backgroundColor: '#fff', padding: 24, borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingBottom: 40 },
+    exportSub: { color: '#64748B', fontSize: 13, marginBottom: 25, lineHeight: 18 },
+    exportOptionsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    exportOption: { width: '48%', backgroundColor: '#F8FAFC', borderRadius: 24, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' },
+    exportIcon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+    exportText: { fontSize: 14, fontWeight: '800', color: '#1E293B' },
+    exportTip: { fontSize: 10, color: '#94A3B8', marginTop: 4, fontWeight: '600' }
 });
